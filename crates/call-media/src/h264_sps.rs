@@ -154,3 +154,74 @@ pub(super) fn validate(escaped: &[u8]) -> Result<(), &'static str> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn sps(width_mbs: u32, height_maps: u32, bottom_crop: u32, refs: u32) -> Vec<u8> {
+        fn ue(bits: &mut Vec<bool>, value: u32) {
+            let code = u64::from(value) + 1;
+            let size = 64 - code.leading_zeros();
+            bits.extend(std::iter::repeat_n(false, size as usize - 1));
+            bits.extend((0..size).rev().map(|shift| code & (1 << shift) != 0));
+        }
+        let mut bits: Vec<bool> = [66u8, 0, 40]
+            .into_iter()
+            .flat_map(|byte| (0..8).rev().map(move |shift| byte & (1 << shift) != 0))
+            .collect();
+        for value in [0, 0, 0, 0, refs] {
+            ue(&mut bits, value);
+        }
+        bits.push(false);
+        ue(&mut bits, width_mbs - 1);
+        ue(&mut bits, height_maps - 1);
+        bits.extend([true, true, bottom_crop != 0]);
+        if bottom_crop != 0 {
+            for value in [0, 0, 0, bottom_crop] {
+                ue(&mut bits, value);
+            }
+        }
+        bits.extend([false, true]); // No VUI; RBSP stop bit.
+        while !bits.len().is_multiple_of(8) {
+            bits.push(false);
+        }
+        let mut escaped = Vec::new();
+        let mut zeros = 0;
+        for chunk in bits.as_chunks::<8>().0 {
+            let byte = chunk
+                .iter()
+                .fold(0u8, |value, &bit| (value << 1) | u8::from(bit));
+            if zeros == 2 && byte <= 3 {
+                escaped.push(3);
+                zeros = 0;
+            }
+            escaped.push(byte);
+            zeros = if byte == 0 { zeros + 1 } else { 0 };
+        }
+        escaped
+    }
+    #[test]
+    fn coded_dimensions_and_crop_are_both_bounded() {
+        assert!(validate(&sps(40, 30, 0, 1)).is_ok()); // 640x480
+        assert!(validate(&sps(120, 68, 4, 16)).is_ok()); // 1920x1080 from 1088 coded rows
+        assert!(validate(&sps(120, 68, 0, 1)).is_err()); // visible height too large
+        assert!(validate(&sps(121, 68, 4, 1)).is_err()); // coded width too large
+        assert!(validate(&sps(120, 256, 1900, 1)).is_err()); // tiny crop cannot hide huge surface
+        assert!(validate(&sps(40, 30, 241, 1)).is_err()); // crop underflow
+        assert!(validate(&sps(40, 30, 0, 17)).is_err()); // excessive reference surfaces
+    }
+    #[test]
+    fn malformed_sps_and_unbounded_codes_are_rejected() {
+        assert!(validate(&[]).is_err());
+        assert!(validate(&vec![0; 4097]).is_err());
+        assert!(validate(&[66, 0, 40, 0, 0, 0, 0, 0, 0x80]).is_err());
+        assert!(validate(&[66, 0, 40, 0, 0, 3, 4]).is_err());
+        let good = sps(40, 30, 0, 1);
+        for len in 0..good.len().saturating_sub(1) {
+            assert!(validate(&good[..len]).is_err());
+        }
+        let mut frame = vec![0, 0, 0, 1, 0x67];
+        frame.extend(sps(121, 68, 4, 1));
+        assert!(crate::h264::validate_decode(&frame).is_err());
+    }
+}
