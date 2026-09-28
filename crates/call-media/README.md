@@ -1,8 +1,12 @@
 # call-media
 
-Reusable audio and video device adapters for calling (initial scaffold).
+Headless audio/video device and codec adapters for calling applications.
 
-This crate currently establishes a workspace boundary only. It provides no
-working network connection, call, codec, or device implementation.
+Optional features: `audio` for CPAL capture/playback and processing, `codecs` for
+software H.264, `video` for camera and screen/HDMI capture. Default features are
+empty. The API is unstable and live hardware validation remains outstanding.
 
-License: MIT OR Apache-2.0. See the repository root for both license texts.
+See the [repository README](https://github.com/jethac/call-media) for ownership,
+frame formats, native dependencies and current limitations.
+
+License: MIT OR Apache-2.0. Original source attribution is in THIRD_PARTY.md.

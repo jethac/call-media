@@ -10,3 +10,21 @@ repository = "https://github.com/jethac/call-media"
 
 [workspace.lints.rust]
 unsafe_code = "deny"
+
+[profile.dev.package.sonora]
+opt-level = 3
+
+[profile.dev.package.sonora-aec3]
+opt-level = 3
+
+[profile.dev.package.sonora-common-audio]
+opt-level = 3
+
+[profile.dev.package.sonora-fft]
+opt-level = 3
+
+[profile.dev.package.sonora-simd]
+opt-level = 3
+
+[profile.dev.package.nnnoiseless]
+opt-level = 3

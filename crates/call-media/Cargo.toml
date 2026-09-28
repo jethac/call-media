@@ -4,10 +4,54 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Reusable audio and video device adapters for calling (initial scaffold)"
+description = "Audio and video device adapters for headless calling applications"
 readme = "README.md"
-# Enable publication when a usable implementation and API are ready.
 publish = false
+
+[features]
+default = []
+audio = ["dep:cpal", "dep:rtrb", "dep:sonora", "dep:nnnoiseless"]
+codecs = ["dep:openh264"]
+video = ["codecs", "dep:image", "dep:gstreamer", "dep:gstreamer-app", "dep:gstreamer-video", "dep:zbus", "dep:libpulse-sys", "dep:libc"]
 
 [lints]
 workspace = true
+
+[dependencies]
+futures-util = "0.3"
+getrandom = "0.4"
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["sync", "rt", "time", "macros"] }
+rtrb = { version = "=0.4.0", optional = true }
+sonora = { version = "=0.2.0", default-features = false, optional = true }
+nnnoiseless = { version = "=0.5.2", default-features = false, optional = true }
+openh264 = { version = "=0.9.8", optional = true }
+image = { version = "=0.25.10", default-features = false, optional = true }
+cpal = { version = "=0.18.2", default-features = false, optional = true }
+
+[target."cfg(target_os = \"macos\")".dependencies]
+screencapturekit = { version = "=10.0.3", default-features = false, features = ["macos_14_0"] }
+objc2 = { version = "=0.6.4" }
+block2 = { version = "=0.6.2" }
+objc2-av-foundation = { version = "=0.3.2", default-features = false, features = ["std", "AVCaptureDevice", "AVCaptureInput", "AVCaptureOutputBase", "AVCaptureSession", "AVCaptureSessionPreset", "AVCaptureVideoDataOutput", "AVMediaFormat", "block2", "dispatch2", "objc2-core-media"] }
+objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSDictionary", "NSObject", "NSString", "NSValue"] }
+objc2-core-media = { version = "=0.3.2", default-features = false, features = ["std", "bitflags", "objc2", "objc2-core-video", "CMBase", "CMTime", "CMBlockBuffer", "CMFormatDescription", "CMSampleBuffer"] }
+objc2-core-video = { version = "=0.3.2", default-features = false, features = ["std", "bitflags", "objc2", "CVBase", "CVBuffer", "CVImageBuffer", "CVPixelBuffer", "CVReturn"] }
+objc2-core-foundation = { version = "=0.3.2", default-features = false, features = ["std", "CFBase", "CFArray", "CFDictionary", "CFNumber", "CFString"] }
+objc2-video-toolbox = { version = "=0.3.2", default-features = false, features = ["std", "bitflags", "objc2", "objc2-core-media", "objc2-core-video", "VTBase", "VTErrors", "VTSession", "VTCompressionProperties", "VTCompressionSession"] }
+dispatch2 = { version = "=0.3.1" }
+
+[target."cfg(target_os = \"windows\")".dependencies]
+windows-capture = { version = "=2.0.1" }
+windows = { version = "=0.61.3", features = ["Win32_Media_MediaFoundation", "Win32_System_Com", "Win32_Media_DirectShow", "Win32_System_Com_StructuredStorage", "Win32_System_Variant", "Win32_Graphics_Gdi", "Win32_System_Ole", "Win32_Media_Audio", "Win32_System_Threading", "Win32_Security"] }
+windows-core = { version = "=0.61.2" }
+
+[target."cfg(target_os = \"linux\")".dependencies]
+cpal = { version = "=0.18.2", default-features = false, features = ["pulseaudio"], optional = true }
+libpulse-sys = { version = "=1.23.0", optional = true }
+libc = { version = "=0.2.189", optional = true }
+image = { version = "=0.25.10", default-features = false, features = ["jpeg"], optional = true }
+gstreamer = { version = "=0.25.3", optional = true }
+gstreamer-app = { version = "=0.25.2", optional = true }
+gstreamer-video = { version = "=0.25.3", optional = true }
+zbus = { version = "=5.19.0", default-features = false, features = ["tokio"], optional = true }
