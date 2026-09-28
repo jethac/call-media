@@ -33,7 +33,9 @@ is the responsibility of the calling service library.
   preview and active calls: they must not compete for the same hardware.
 - `camera::Camera` supplies RGB preview and independently decodable H.264 at
   640x480/15 fps. `codec::Encoder` accepts caller-owned RGB24 at other supported
-  sizes, up to 1080p pixel count. Codec work belongs off the UI thread.
+  sizes, up to 1080p pixel count. Decoder preflight accepts 8-bit 4:2:0 baseline,
+  main, extended and high-profile SPS declarations and bounds coded dimensions
+  before native allocation. Codec work belongs off the UI thread.
 - `screen::Video` carries bounded encoded frames, readiness/keyframe/bitrate
   feedback, and optional 48 kHz interleaved stereo audio. Honor readiness and
   audio epochs so buffered media does not cross an encryption transition.

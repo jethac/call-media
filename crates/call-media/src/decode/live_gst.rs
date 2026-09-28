@@ -132,6 +132,7 @@ impl H264Decoder {
 
     /// Queue one Annex-B access unit. Errors from the pipeline surface on the next call.
     pub fn decode(&mut self, access_unit: &[u8]) -> Result<(), &'static str> {
+        crate::h264::validate_decode(access_unit)?;
         if access_unit.len() > MAX_ACCESS_UNIT {
             return Err(INVALID);
         }

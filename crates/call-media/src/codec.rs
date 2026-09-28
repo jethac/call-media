@@ -113,7 +113,7 @@ impl Decoder {
         })
     }
     pub fn decode(&mut self, data: &[u8]) -> Result<Option<Picture>, &'static str> {
-        crate::h264::validate_source(data)?;
+        crate::h264::validate_decode(data)?;
         let Some(yuv) = self
             .decoder
             .decode(data)

@@ -78,3 +78,21 @@ pub fn is_keyframe(frame: &[u8]) -> bool {
     }
     false
 }
+
+/// Preflight all SPS declarations before native decoding. Supports baseline,
+/// main, extended and high profiles with 8-bit 4:2:0 samples, through 1080p.
+/// This bounds coded surfaces even when a small crop is advertised. It is not
+/// a complete H.264 bitstream verifier; native decoder errors still apply.
+pub fn validate_decode(frame: &[u8]) -> Result<(), &'static str> {
+    validate_source(frame)?;
+    for nal in nalus(frame)? {
+        let kind = nal[0] & 31;
+        if nal[0] & 0x80 != 0 || !(1..=12).contains(&kind) {
+            return Err("Unsupported H264 NAL unit");
+        }
+        if kind == 7 {
+            crate::h264_sps::validate(&nal[1..])?;
+        }
+    }
+    Ok(())
+}
