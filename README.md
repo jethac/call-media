@@ -58,7 +58,7 @@ runtime plugins for the selected capture/encoder/decoder pipeline. On Ubuntu:
 ```sh
 sudo apt-get install build-essential pkg-config libasound2-dev libpulse-dev \
   libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
-  gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+  gstreamer1.0-plugins-base gstreamer1.0-alsa gstreamer1.0-plugins-good \
   gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav
 ```
 

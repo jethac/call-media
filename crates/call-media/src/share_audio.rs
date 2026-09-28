@@ -106,6 +106,16 @@ fn run(
         .property("latency-time", 10_000i64)
         .build()
         .map_err(|_| "Share audio source plugin unavailable")?;
+    run_input(input, send, stop, ready, epoch)
+}
+
+fn run_input(
+    input: gst::Element,
+    send: tokio::sync::mpsc::Sender<AudioChunk>,
+    stop: Arc<AtomicBool>,
+    ready: Arc<AtomicBool>,
+    epoch: Arc<AtomicU64>,
+) -> Result<(), &'static str> {
     let convert = gst::ElementFactory::make("audioconvert")
         .build()
         .map_err(|_| "Audio conversion unavailable")?;
@@ -203,4 +213,177 @@ fn run(
         });
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn native_pipeline_gates_audio_tracks_epochs_and_releases_source() {
+        gst::init().unwrap();
+        // Required offline plugin, never a physical input or server connection.
+        let input = gst::ElementFactory::make("audiotestsrc")
+            .property("is-live", true)
+            .property("samplesperbuffer", 480i32)
+            .build()
+            .expect("install gstreamer1.0-plugins-base for the offline audio check");
+        let inspect = input.clone();
+        let (send, mut receive) = tokio::sync::mpsc::channel(4);
+        let stop = Arc::new(AtomicBool::new(false));
+        let ready = Arc::new(AtomicBool::new(false));
+        let epoch = Arc::new(AtomicU64::new(1));
+        let (done, result) = mpsc::channel();
+        let (worker_stop, worker_ready, worker_epoch) =
+            (stop.clone(), ready.clone(), epoch.clone());
+        let worker = std::thread::spawn(move || {
+            let _ = done.send(run_input(
+                input,
+                send,
+                worker_stop,
+                worker_ready,
+                worker_epoch,
+            ));
+        });
+        std::thread::sleep(Duration::from_millis(100));
+        assert!(receive.try_recv().is_err());
+        ready.store(true, Ordering::Release);
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let first = loop {
+            if let Ok(frame) = receive.try_recv() {
+                break frame;
+            }
+            assert!(Instant::now() < deadline, "no ready audio received");
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        assert_eq!(first.epoch, 1);
+        assert!(!first.samples.is_empty() && first.samples.len() <= MAX_AUDIO_SAMPLES);
+        assert!(first.samples.len().is_multiple_of(2));
+        assert!(
+            first
+                .samples
+                .iter()
+                .all(|s| s.is_finite() && s.abs() <= 1.0)
+        );
+        assert!(first.samples.iter().any(|s| s.abs() > 0.01));
+        epoch.store(2, Ordering::Release);
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            if let Ok(frame) = receive.try_recv()
+                && frame.epoch == 2
+            {
+                break;
+            }
+            assert!(Instant::now() < deadline, "new epoch never reached capture");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        // Let backpressure fill the output without blocking native capture.
+        std::thread::sleep(Duration::from_millis(100));
+        assert!(receive.len() <= 4);
+        stop.store(true, Ordering::Release);
+        assert_eq!(result.recv_timeout(Duration::from_secs(3)).unwrap(), Ok(()));
+        worker.join().unwrap();
+        assert_eq!(inspect.current_state(), gst::State::Null);
+    }
+
+    #[test]
+    fn native_source_eos_is_an_observable_error() {
+        gst::init().unwrap();
+        let input = gst::ElementFactory::make("audiotestsrc")
+            .property("is-live", true)
+            .property("num-buffers", 1i32)
+            .build()
+            .expect("install gstreamer1.0-plugins-base");
+        let (send, _receive) = tokio::sync::mpsc::channel(4);
+        let (done, result) = mpsc::channel();
+        let stop = Arc::new(AtomicBool::new(false));
+        let worker_stop = stop.clone();
+        let worker = std::thread::spawn(move || {
+            let _ = done.send(run_input(
+                input,
+                send,
+                worker_stop,
+                Arc::new(AtomicBool::new(false)),
+                Arc::new(AtomicU64::new(1)),
+            ));
+        });
+        let result = result.recv_timeout(Duration::from_secs(3));
+        stop.store(true, Ordering::Release);
+        worker.join().unwrap();
+        assert_eq!(result.unwrap(), Err("Selected audio input ended"));
+    }
+    #[test]
+    fn delayed_native_buffers_cannot_cross_an_epoch_cutoff() {
+        gst::init().unwrap();
+        let caps = gst::Caps::builder("audio/x-raw")
+            .field("format", "F32LE")
+            .field("layout", "interleaved")
+            .field("rate", 48_000i32)
+            .field("channels", 2i32)
+            .build();
+        let input = gstreamer_app::AppSrc::builder()
+            .caps(&caps)
+            .is_live(true)
+            .format(gst::Format::Time)
+            .build();
+        let source = input.clone();
+        let (send, mut receive) = tokio::sync::mpsc::channel(4);
+        let ready = Arc::new(AtomicBool::new(true));
+        let epoch = Arc::new(AtomicU64::new(1));
+        let stop = Arc::new(AtomicBool::new(false));
+        let (worker_stop, worker_epoch) = (stop.clone(), epoch.clone());
+        let (done, result) = mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let _ = done.send(run_input(
+                source.upcast(),
+                send,
+                worker_stop,
+                ready,
+                worker_epoch,
+            ));
+        });
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while input.current_running_time().is_none() {
+            assert!(Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        std::thread::sleep(Duration::from_millis(50));
+        let push = |timestamp: gst::ClockTime, value: f32| {
+            let bytes = value.to_le_bytes().repeat(960);
+            let mut buffer = gst::Buffer::from_mut_slice(bytes);
+            let metadata = buffer.get_mut().unwrap();
+            metadata.set_pts(timestamp);
+            metadata.set_duration(gst::ClockTime::from_mseconds(10));
+            input.push_buffer(buffer).unwrap();
+        };
+        let old = input.current_running_time().unwrap();
+        epoch.store(2, Ordering::Release);
+        std::thread::sleep(Duration::from_millis(50));
+        push(old, 0.25);
+        std::thread::sleep(Duration::from_millis(50));
+        assert!(
+            receive.try_recv().is_err(),
+            "old native buffer was relabeled with the new epoch"
+        );
+        push(input.current_running_time().unwrap(), 0.75);
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let frame = loop {
+            if let Ok(frame) = receive.try_recv() {
+                break frame;
+            }
+            assert!(Instant::now() < deadline, "fresh audio did not pass cutoff");
+            std::thread::sleep(Duration::from_millis(5));
+        };
+        assert_eq!(frame.epoch, 2);
+        assert!(
+            frame
+                .samples
+                .iter()
+                .all(|sample| (*sample - 0.75).abs() < 0.001)
+        );
+        stop.store(true, Ordering::Release);
+        assert_eq!(result.recv_timeout(Duration::from_secs(3)).unwrap(), Ok(()));
+        worker.join().unwrap();
+    }
 }
