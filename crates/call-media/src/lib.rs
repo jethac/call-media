@@ -23,3 +23,6 @@ mod video_encode;
 
 #[cfg(feature = "codecs")]
 pub mod codec;
+
+#[cfg(all(feature = "video", target_os = "linux"))]
+pub mod share_audio;

@@ -40,9 +40,11 @@ is the responsibility of the calling service library.
 - On Linux, `screen::SourceId::VideoDevice(n)` selects `/dev/videoN`, including
   HDMI capture cards. V4L2 source negotiation handles raw/encoded video through
   GStreamer. Hardware compatibility remains unverified.
-- HDMI audio must be supplied separately through `Video.audio`; requesting
+- HDMI audio can be attached with `share_audio::Capture::attach`, selecting an
+  explicit ALSA/PulseAudio source, or supplied through `Video.audio`; requesting
   desktop loopback for a V4L2 input is rejected. Automatic HDMI audio-device
-  pairing is not implemented.
+  pairing is not implemented. Retain the audio capture handle, poll `result` for
+  asynchronous device errors, and use `shutdown` to await device release.
 
 ## Native dependencies
 
