@@ -185,4 +185,36 @@ mod tests {
             .is_err()
         );
     }
+    #[test]
+    fn independently_encoded_baseline_main_and_high_decode_to_expected_pixels() {
+        for (profile, data) in [
+            (
+                66,
+                include_bytes!("../tests/fixtures/baseline.h264").as_slice(),
+            ),
+            (77, include_bytes!("../tests/fixtures/main.h264").as_slice()),
+            (
+                100,
+                include_bytes!("../tests/fixtures/high.h264").as_slice(),
+            ),
+        ] {
+            // The fixture must actually contain the advertised SPS profile.
+            let sps = data
+                .windows(5)
+                .find(|bytes| bytes[..4] == [0, 0, 1, 0x67])
+                .unwrap();
+            assert_eq!(sps[4], profile);
+            crate::h264::validate_decode(data).unwrap();
+            let mut decoder = Decoder::new().unwrap();
+            let picture = decoder
+                .decode(data)
+                .unwrap()
+                .expect("independent IDR did not decode");
+            assert_eq!((picture.width, picture.height), (64, 48));
+            for rgba in picture.rgba.as_chunks::<4>().0 {
+                assert!(rgba[0] >= 245 && rgba[1] <= 10 && rgba[2] <= 10);
+                assert_eq!(rgba[3], 255);
+            }
+        }
+    }
 }
